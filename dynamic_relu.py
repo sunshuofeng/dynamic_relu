@@ -7,52 +7,47 @@ import torch.nn.functional as F
 
 
 
-def make_residual_fc(in_channel,fc_outchannel,R=8,k=2):
-    out_channel=int(in_channel/R)
-    fc1=nn.Linear(in_channel,out_channel)
-    fc_list=[]
-    for i in range(k):
-        fc_list.append(nn.Linear(out_channel,fc_outchannel))
-    fc2=nn.ModuleList(fc_list)
-    return fc1,fc2
 
-
-class residual(nn.Module):
-    def __init__(self,relu_type,R=8,k=2):
-        super(residual, self).__init__()
+class Residual(nn.Module):
+    def __init__(self,in_channel,R=8,k=2):
+        super(Residual, self).__init__()
         self.avg=nn.AdaptiveAvgPool2d((1,1))
         self.relu=nn.ReLU(inplace=True)
-        self.relu_type=relu_type
         self.R=R
         self.k=k
+        out_channel=int(in_channel/R)
+        self.fc1=nn.Linear(in_channel,out_channel)
+        fc_list=[]
+        for i in range(k):
+          fc_list.append(nn.Linear(out_channel,2*in_channel))
+        self.fc2=nn.ModuleList(fc_list)
+
 
     def forward(self,x):
-        in_channel=x.shape[1]
         x=self.avg(x)
-        if self.relu_type=='a':
-            fc_outchannel=2
-        elif self.relu_type=='b':
-            fc_outchannel=2*in_channel
-        elif self.relu_type=='c':
-            fc_outchannel=2*in_channel
-        fc1,fc2=make_residual_fc(in_channel,fc_outchannel,self.R,self.k)
         x=torch.squeeze(x)
-        x=fc1(x)
+        x=self.fc1(x)
         x=self.relu(x)
         result_list=[]
         for i in range(self.k):
-            result=fc2[i](x)
+            result=self.fc2[i](x)
             result=2*torch.sigmoid(result)-1
             result_list.append(result)
         return result_list
 
+    
+
+      
+
+    
 
 
 
 
-class Dynamic_Relu_B(nn.Module):
-    def __init__(self,R=8,k=2):
-        super(Dynamic_Relu_B, self).__init__()
+
+class Dynamic_relu_b(nn.Module):
+    def __init__(self,inchannel,R=8,k=2):
+        super(Dynamic_relu_b, self).__init__()
         self.lambda_alpha=1
         self.lambda_beta=0.5
         self.R=R
@@ -61,20 +56,14 @@ class Dynamic_Relu_B(nn.Module):
         self.init_beta=torch.zeros(self.k)
         self.init_alpha[0]=1
         self.init_beta[0]=1
-
         for i in range(1,k):
             self.init_alpha[i]=0
             self.init_beta[i]=0
 
-        self.residual=residual('b',self.R,self.k)
-
+       
+        self.residual=Residual(inchannel)
 
     def forward(self,input):
-        '''
-
-        :param input: [N,C,H,W]
-        :return: [N,C,H,W]
-        '''
         delta=self.residual(input)
         in_channel=input.shape[1]
         bs=input.shape[0]
@@ -107,7 +96,6 @@ class Dynamic_Relu_B(nn.Module):
             for c in range(channel):
                 results[i,c,:,:]=x[i,c]*alpha[i,c]+beta[i,c]
         return results
-
 
 
 class Dynamic_Relu_A(nn.Module):
